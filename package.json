@@ -4,6 +4,7 @@
   "description": "",
   "main": "uvpd-v4.js",
   "scripts": {
+    "start": "node uvpd-v4.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "author": "Eric Mansfield",

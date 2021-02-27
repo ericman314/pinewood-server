@@ -38,7 +38,6 @@ function requireUser(req, res, next) {
   let token = tokenMatch[1]
 
   let user = jwt.decode(token)
-  console.log(user)
   req.user = user
   next()
 }
@@ -51,12 +50,14 @@ function requireUser(req, res, next) {
  */
 function requireAdmin(req, res, next) {
   let tokenHeader = req.get('Authorization')
-  let tokenMatch = /Bearer (.*)/.match(tokenHeader)
+  let tokenMatch = /Bearer (.*)/.exec(tokenHeader)
   if (!tokenMatch) return accessDenied(res)
   let token = tokenMatch[1]
 
   let user = jwt.decode(token)
-  console.log(user)
+  req.user = user
+  if (!user.admin) return accessDenied(res)
+  next()
 }
 
 function accessDenied(res) {
@@ -118,6 +119,51 @@ app.get('/api/v4/user/verify', requireUser, (req, res) => {
   }
 })
 
+app.get('/api/v4/user/all', requireAdmin, async (req, res) => {
+  let users = await query('SELECT userId, username, admin from Users')
+  res.json(users)
+})
+
+app.post('/api/v4/user/update', requireAdmin, async (req, res) => {
+  if (!req.body.username || req.body.username === '') return res.json({ error: 'username is required' })
+  if (req.body.userId == null) return res.json({ error: 'userId is required' })
+  let results = await query('UPDATE Users SET ? WHERE userId = ?', [req.body, req.body.userId])
+  if (results.affectedRows === 1) {
+    let update = [{ table: 'user', data: [req.body] }]
+    res.json({ success: true, update })
+    pushUpdate(update)
+  } else {
+    res.json({ error: 'User not found' })
+  }
+})
+
+app.post('/api/v4/user/create', requireAdmin, async (req, res) => {
+  if (!req.body.username || req.body.username === '') return res.json({ error: 'username is required' })
+  if (!req.body.password) return res.json({ error: 'password is required' })
+
+  try {
+    let results = await query('INSERT into Users SET ?', [req.body])
+    // res.json({ success: true, insertId: results.insertId })
+    let update = [{ table: 'user', data: [{ ...req.body, userId: results.insertId }] }]
+    res.json({ success: true, update })
+    pushUpdate(update)
+  } catch (ex) {
+    res.json({ error: ex.message })
+  }
+})
+
+app.post('/api/v4/user/delete', requireAdmin, async (req, res) => {
+  if (req.body.userId == null) return res.json({ error: 'userId is required' })
+  let results = await query('DELETE FROM Users WHERE userId = ?', [req.body.userId])
+  if (results.affectedRows === 1) {
+    let update = [{ table: 'user', data: { ids: [req.body.userId] }, deleted: true }]
+    res.json({ success: true, update })
+    pushUpdate(update)
+  } else {
+    res.json({ error: 'User not found' })
+  }
+})
+
 app.post('/api/v3/mysqldump', (req, res) => {
   if (req.body.secret === config.secret) {
     const cmd = `mysql --database pinewood -u${config.dbUser} -p${config.dbPw}`
@@ -158,6 +204,18 @@ app.get('/api/v4/event/all', function (req, res) {
       res.json(rows)
     }
   })
+})
+
+app.post('/api/v4/event/create', requireAdmin, async (req, res) => {
+  if (!req.body.eventName || req.body.eventName === '') return res.json({ error: 'eventName is required' })
+  if (!req.body.multiplier) return res.json({ error: 'multiplier is required' })
+
+  try {
+    let results = await query('INSERT into Events SET ?', [req.body])
+    res.json({ success: true, insertId: results.insertId })
+  } catch (ex) {
+    res.json({ error: ex.message })
+  }
 })
 
 app.get('/api/v4/car/getByEventId', function (req, res) {
@@ -422,14 +480,44 @@ app.get('/api/v3/checkin/:id.jpg', function (req, res) {
   }
 })
 
+app.post('/api/v4/subscribe', requireUser, (req, res) => {
+  let socket = sockets.find(s => s.id === req.body.socketId)
+  if (socket) {
+    if (!socket.models) socket.models = []
+    for (let model of req.body.models) {
+      if (!socket.models.includes(model)) {
+        socket.models.push(model)
+      }
+    }
+    console.log(`socket ${socket.id} is now subscribed to ${socket.models}`)
+    res.json({ models: socket.models })
+  } else {
+    console.log(`socket ${req.body.socketId} not found`)
+    res.json({ error: 'socket not found' })
+  }
+
+})
+
 app.use(function (req, res, next) {
   res.status(404)
   res.send({ error: 'Not found' })
 })
 
+const sockets = []
 io.on('connection', socket => {
+  sockets.push(socket)
   console.log('socket connected:' + socket.id)
 })
+
+function pushUpdate(update) {
+  for (let socket of sockets) {
+    let yourUpdate = update.filter(u => socket.models.includes(u.table))
+    if (yourUpdate.length > 0) {
+      socket.emit('update', yourUpdate)
+    }
+  }
+
+}
 
 server.listen(config.expressPort, function () {
   console.log("Listening on *:" + config.expressPort)
