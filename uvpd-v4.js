@@ -64,7 +64,7 @@ function accessDenied(res) {
   res.json({ error: 'Access denied' })
 }
 
-app.use(morgan('combined'))
+app.use(morgan('dev'))
 
 app.use(bodyParser.json({       // to support JSON-encoded bodies
   limit: '1mb'
@@ -212,7 +212,9 @@ app.post('/api/v4/event/create', requireAdmin, async (req, res) => {
 
   try {
     let results = await query('INSERT into Events SET ?', [req.body])
-    res.json({ success: true, insertId: results.insertId })
+    let update = [{ table: 'event', data: [{ ...req.body, eventId: results.insertId }] }]
+    res.json({ success: true, update })
+    pushUpdate(update)
   } catch (ex) {
     res.json({ error: ex.message })
   }
@@ -511,7 +513,9 @@ io.on('connection', socket => {
 
 function pushUpdate(update) {
   for (let socket of sockets) {
-    let yourUpdate = update.filter(u => socket.models.includes(u.table))
+    let yourUpdate = update.filter(u => socket.models?.includes(u.table))
+    // console.log(`socket ${socket.id} is receiving:`)
+    // console.log(JSON.stringify(yourUpdate, null, 2))
     if (yourUpdate.length > 0) {
       socket.emit('update', yourUpdate)
     }
