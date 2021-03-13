@@ -201,7 +201,7 @@ app.get('/api/v4/event/all', function (req, res) {
       res.json({ error: err })
     }
     else {
-      res.json(rows)
+      res.json(rows.map(fromBuffer))
     }
   })
 })
@@ -212,7 +212,39 @@ app.post('/api/v4/event/create', requireAdmin, async (req, res) => {
 
   try {
     let results = await query('INSERT into Events SET ?', [req.body])
-    let update = [{ table: 'event', data: [{ ...req.body, eventId: results.insertId }] }]
+    let insertedObject = await query('SELECT * FROM Events WHERE eventId = ?', [results.insertId])
+    let update = [{ table: 'event', data: insertedObject.map(fromBuffer) }]
+    res.json({ success: true, update })
+    pushUpdate(update)
+  } catch (ex) {
+    res.json({ error: ex.message })
+  }
+})
+
+
+app.post('/api/v4/event/update', requireAdmin, async (req, res) => {
+  if (!req.body.eventName || req.body.eventName === '') return res.json({ error: 'eventName is required' })
+  if (!req.body.eventId || req.body.eventId === '') return res.json({ error: 'eventId is required' })
+  if (!req.body.multiplier) return res.json({ error: 'multiplier is required' })
+
+  try {
+    let results = await query('UPDATE Events SET ? WHERE eventId = ?', [req.body, req.body.eventId])
+    let insertedObject = await query('SELECT * FROM Events WHERE eventId = ?', [req.body.eventId])
+    let update = [{ table: 'event', data: insertedObject.map(fromBuffer) }]
+    res.json({ success: true, update })
+    pushUpdate(update)
+  } catch (ex) {
+    res.json({ error: ex.message })
+  }
+})
+
+app.post('/api/v4/event/delete', requireAdmin, async (req, res) => {
+  if (!req.body.eventId || req.body.eventId === '') return res.json({ error: 'eventId is required' })
+
+  try {
+    // TODO: Also remove cars and results
+    let results = await query('DELETE FROM Events WHERE eventId = ?', [req.body.eventId])
+    let update = [{ table: 'event', data: { ids: [req.body.eventId] }, deleted: true }]
     res.json({ success: true, update })
     pushUpdate(update)
   } catch (ex) {
@@ -521,6 +553,18 @@ function pushUpdate(update) {
     }
   }
 
+}
+
+function fromBuffer(row) {
+  console.log(row)
+  let keys = ['enableVoting', 'hidden']
+  let converted = { ...row }
+  for (let key of keys) {
+    if (Buffer.isBuffer(converted[key])) {
+      converted[key] = converted[key][0] === 1
+    }
+  }
+  return converted
 }
 
 server.listen(config.expressPort, function () {
