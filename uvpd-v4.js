@@ -229,8 +229,8 @@ app.post('/api/v4/event/update', requireAdmin, async (req, res) => {
 
   try {
     let results = await query('UPDATE Events SET ? WHERE eventId = ?', [req.body, req.body.eventId])
-    let insertedObject = await query('SELECT * FROM Events WHERE eventId = ?', [req.body.eventId])
-    let update = [{ table: 'event', data: insertedObject.map(fromBuffer) }]
+    let updatedObject = await query('SELECT * FROM Events WHERE eventId = ?', [req.body.eventId])
+    let update = [{ table: 'event', data: updatedObject.map(fromBuffer) }]
     res.json({ success: true, update })
     pushUpdate(update)
   } catch (ex) {
@@ -245,6 +245,66 @@ app.post('/api/v4/event/delete', requireAdmin, async (req, res) => {
     // TODO: Also remove cars and results
     let results = await query('DELETE FROM Events WHERE eventId = ?', [req.body.eventId])
     let update = [{ table: 'event', data: { ids: [req.body.eventId] }, deleted: true }]
+    res.json({ success: true, update })
+    pushUpdate(update)
+  } catch (ex) {
+    res.json({ error: ex.message })
+  }
+})
+
+
+app.post('/api/v4/car/create', requireAdmin, async (req, res) => {
+  if (!req.body.carName || req.body.carName === '') return res.json({ error: 'carName is required' })
+
+  try {
+    let imageData = req.body.imageData
+    delete req.body.imageData
+    req.body.imageVersion = Date.now()
+    let results = await query('INSERT into Cars SET ?', [req.body])
+    let insertedObject = await query('SELECT * FROM Cars WHERE carId = ?', [results.insertId])
+    let update = [{ table: 'car', data: insertedObject.map(fromBuffer) }]
+    if (imageData) {
+      imageData = imageData.replace('data:image/jpeg;base64,', '')
+      var filename = __dirname + "/public/cars/" + results.insertId + ".jpg"
+      await fs.promises.writeFile(filename, imageData, "base64")
+    }
+    res.json({ success: true, update })
+    pushUpdate(update)
+  } catch (ex) {
+    res.json({ error: ex.message })
+  }
+})
+
+app.post('/api/v4/car/update', requireAdmin, async (req, res) => {
+  if (!req.body.carName || req.body.carName === '') return res.json({ error: 'carName is required' })
+  if (!req.body.carId) return res.json({ error: 'carId is required' })
+
+  try {
+    let imageData = req.body.imageData
+    delete req.body.imageData
+    req.body.imageVersion = Date.now()
+    let results = await query('UPDATE Cars SET ? WHERE carId = ?', [req.body, req.body.carId])
+    let updatedObject = await query('SELECT * FROM Cars WHERE carId = ?', [req.body.carId])
+    let update = [{ table: 'car', data: updatedObject.map(fromBuffer) }]
+    if (imageData) {
+      imageData = imageData.replace('data:image/jpeg;base64,', '')
+      var filename = __dirname + "/public/cars/" + req.body.carId + ".jpg"
+      await fs.promises.writeFile(filename, imageData, "base64")
+    }
+    res.json({ success: true, update })
+    pushUpdate(update)
+  } catch (ex) {
+    res.json({ error: ex.message })
+  }
+})
+
+app.post('/api/v4/car/delete', requireAdmin, async (req, res) => {
+  if (!req.body.carId || req.body.carId === '') return res.json({ error: 'carId is required' })
+
+  try {
+    // TODO: Also remove cars and results
+    let results = await query('DELETE FROM Cars WHERE carId = ?', [req.body.carId])
+    let update = [{ table: 'car', data: { ids: [req.body.carId] }, deleted: true }]
     res.json({ success: true, update })
     pushUpdate(update)
   } catch (ex) {
@@ -532,10 +592,14 @@ app.post('/api/v4/subscribe', requireUser, (req, res) => {
 
 })
 
+app.use(express.static(__dirname + '/public'))
+
 app.use(function (req, res, next) {
   res.status(404)
   res.send({ error: 'Not found' })
 })
+
+
 
 const sockets = []
 io.on('connection', socket => {
