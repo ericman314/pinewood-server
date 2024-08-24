@@ -67,11 +67,11 @@ function accessDenied(res) {
 app.use(morgan('dev'))
 
 app.use(bodyParser.json({       // to support JSON-encoded bodies
-  limit: '1mb'
+  limit: '10mb'
 }))
 app.use(bodyParser.urlencoded({     // to support URL-encoded bodies
   extended: true,
-  limit: '1mb'
+  limit: '10mb'
 }))
 
 app.use(function (req, res, next) {
@@ -202,6 +202,21 @@ app.get('/api/v4/event/all', function (req, res) {
     }
     else {
       res.json(rows.map(fromBuffer))
+    }
+  })
+})
+
+app.get('/api/v4/event/get', function (req, res) {
+  const params = [req.query.eventId]
+  pool.query(`SELECT * FROM Events WHERE EventId = ?`, params, function (err, rows) {
+    if (err) {
+      console.log(err)
+      res.json({ error: err })
+    }
+    else if (rows.length === 1) {
+      res.json(rows.map(fromBuffer))
+    } else {
+      res.json({ error: 'Event not found' })
     }
   })
 })
